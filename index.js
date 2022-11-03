@@ -2,13 +2,16 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 5000;
+
 
 //require the env variable and console the user name and password of mongodb to check if it is working well
 require('dotenv').config();
 console.log(process.env.DB_USER);
 console.log(process.env.DB_PASSWORD);
+console.log(process.env.ACCESS_TOKEN_SECRET);
 
 //middle wares
 app.use(cors());
@@ -21,6 +24,32 @@ app.use(express.json());
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.axoxgat.mongodb.net/?retryWrites=true&w=majority`;
 // console.log(uri);
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
+
+
+//function for validate jwt token
+function verifyJWT (req, res, next) {
+    const authHeader = req.headers.authorization;
+    console.log(authHeader);
+
+    if(!authHeader){
+        return res.status(401).send({message: "Unauthorized Access"})
+    }
+    const token = authHeader.split(' ')[1];
+
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function(error, decoded){
+        if(error){
+            return res.status(403).send({message: "Forbidden Access"})
+        }
+
+        req.decoded = decoded;
+        next();
+    })
+}
+
+
+
+
+
 
 async function run() {
     try {
@@ -52,8 +81,8 @@ async function run() {
         
         // Client side er orders er jonno API create//
 
-        // create orders data on database.. Client side theke checkout.js page er order data gula backend diye database e send kora. ==> Create operation
-        app.post('/orders', async (req, res) => {
+        // create (Means Add) orders data on database.. Client side theke checkout.js page er order data gula backend diye database e send kora. ==> Create operation
+        app.post('/orders', verifyJWT, async (req, res) => {
             const order = req.body;
             const result = await orderCollection.insertOne(order);
             res.send(result);
@@ -70,10 +99,20 @@ async function run() {
 
 
         // get an email specific order data from mongodb database ==> Read operation
-        app.get('/orders', async(req, res) => {
+        app.get('/orders', verifyJWT, async(req, res) => {
             console.log(req.query.email);
-            let query = {};
             
+            //console.log(req.headers.authorization);
+
+            const decoded = req.decoded;
+            console.log(" Decoded inside Orders get API", decoded);
+
+            if(decoded.email !== req.query.email){
+                return res.status(403).send({message: "Forbidden Access"})
+            }
+            
+
+            let query = {};
             if(req.query.email){
                 query={
                     email: req.query.email
@@ -86,15 +125,15 @@ async function run() {
         })
 
         // delete an order data from mongodb database and also from client side ==> Delete operation
-        app.delete('/orders/:id', async(req, res) => {
+        app.delete('/orders/:id', verifyJWT , async(req, res) => {
             const id = req.params.id;
             const query = {_id: ObjectId(id)};
             const result = await orderCollection.deleteOne(query);
             res.send(result);
         })
 
-        // update an order status from client side. Mane orders page er moddhe j order gula ache shei gular staus ta change korbo.. Processing and approved ei vabe show korbe.. ==> Delete operation
-        app.patch('/orders/:id', async(req, res) => {
+        // update an order status from client side. Mane orders page er moddhe j order gula ache shei gular status ta change korbo.. Processing and approved ei vabe show korbe.. ==> Delete operation
+        app.patch('/orders/:id', verifyJWT, async(req, res) => {
             const id = req.params.id;
             const status = req.body.status;
             const query = {_id: ObjectId(id)};
@@ -106,6 +145,15 @@ async function run() {
             const result = await orderCollection.updateOne(query, updatedDoc);
             res.send(result);
 
+        })
+
+
+        //code for jwt token
+        app.post('/jwt', async(req, res) => {
+            const user = req.body;
+            console.log("User From Sever side: ", user);
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '5h'} );
+            res.send({token})
         })
 
 
